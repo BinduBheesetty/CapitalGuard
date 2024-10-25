@@ -11,6 +11,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "scheme": "capitalguard",  // Added for deep linking
     "ios": {
       "supportsTablet": true
     },
@@ -18,7 +19,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.capitalguard.app"  // Optional, ensure it's unique
     },
     "web": {
       "favicon": "./assets/favicon.png"
