@@ -1,4 +1,3 @@
-//AddRecordPanel.tsx
 import React, { useState } from 'react';
 import {
   View,
@@ -8,12 +7,14 @@ import {
   StyleSheet,
   TouchableOpacity,
   Dimensions,
-  Alert,
   Animated,
   Platform,
+  Alert,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { addDoc, collection, Timestamp } from 'firebase/firestore';
+import { db } from '../firebaseConfig';
 
 const { height } = Dimensions.get('window');
 
@@ -22,14 +23,16 @@ interface AddRecordPanelProps {
   setActiveTab: (tab: 'expense' | 'income') => void;
   closePanel: () => void;
   slideAnim: Animated.Value;
+  fetchTransactions: () => void;
 }
 
 const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
-  activeTab,
-  setActiveTab,
-  closePanel,
-  slideAnim,
-}) => {
+                                                         activeTab,
+                                                         setActiveTab,
+                                                         closePanel,
+                                                         slideAnim,
+                                                         fetchTransactions,
+                                                       }) => {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [date, setDate] = useState(new Date());
@@ -38,11 +41,27 @@ const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
   const expenseCategories = ['Food', 'Transport', 'Shopping', 'Health', 'Utilities', 'Other'];
   const incomeCategories = ['Salary', 'Business', 'Investment', 'Freelancing', 'Other'];
 
-  const handleSave = () => {
-    console.log(
-      `${activeTab.toUpperCase()} - Amount: ${amount}, Category: ${category}, Date: ${date.toDateString()}`
-    );
-    closePanel();
+  const saveTransaction = async () => {
+    try {
+      if (!amount || !category) {
+        Alert.alert('Error', 'Please fill in all fields.');
+        return;
+      }
+
+      await addDoc(collection(db, 'transactions'), {
+        type: activeTab,
+        amount: parseFloat(amount),
+        category,
+        date: Timestamp.fromDate(date),
+      });
+
+      Alert.alert('Success', `${activeTab} added successfully.`);
+      closePanel();
+      fetchTransactions();
+    } catch (error) {
+      console.error('Error saving transaction:', error);
+      Alert.alert('Error', 'Failed to save the transaction.');
+    }
   };
 
   const onDateChange = (event: any, selectedDate?: Date) => {
@@ -50,85 +69,84 @@ const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
     if (selectedDate) setDate(selectedDate);
   };
 
-  const getHeaderStyle = () => ({
-    backgroundColor: activeTab === 'expense' ? '#FF4B4B' : '#28A745',
-  });
-
   const getCategories = () => (activeTab === 'expense' ? expenseCategories : incomeCategories);
 
+  const headerStyle = {
+    backgroundColor: activeTab === 'expense' ? '#FF4B4B' : '#28A745',
+  };
+
+  // Determine Save button color based on form completion
+  const isFormComplete = amount && category;
+  const saveButtonColor = isFormComplete ? '#28A745' : '#D3D3D3';
+
   return (
-    <Animated.View style={[styles.panel, { transform: [{ translateY: slideAnim }] }]}>
-      {/* Header */}
-      <View style={[styles.header, getHeaderStyle()]}>
-        <Text style={styles.headerButton} onPress={closePanel}>
-          Cancel
-        </Text>
-        <Text style={styles.headerTitle}>Add Record</Text>
-        <Text style={styles.headerButton}></Text>
-      </View>
+      <Animated.View style={[styles.panel, { transform: [{ translateY: slideAnim }] }]}>
+        <View style={[styles.header, headerStyle]}>
+          <Text style={styles.headerButton} onPress={closePanel}>
+            Cancel
+          </Text>
+          <Text style={styles.headerTitle}>Add Record</Text>
+          <Text style={styles.headerButton}></Text>
+        </View>
 
-      {/* Tab Toggle */}
-      <View style={styles.tabsContainer}>
-        <TouchableOpacity
-          style={[
-            styles.tabButton,
-            activeTab === 'expense' ? styles.expenseTab : styles.inactiveTab,
-          ]}
-          onPress={() => setActiveTab('expense')}
-        >
-          <Text style={styles.tabText}>Expense</Text>
-        </TouchableOpacity>
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity
+              style={[
+                styles.tabButton,
+                activeTab === 'expense' ? styles.expenseTab : styles.inactiveTab,
+              ]}
+              onPress={() => setActiveTab('expense')}
+          >
+            <Text style={styles.tabText}>Expense</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+              style={[
+                styles.tabButton,
+                activeTab === 'income' ? styles.incomeTab : styles.inactiveTab,
+              ]}
+              onPress={() => setActiveTab('income')}
+          >
+            <Text style={styles.tabText}>Income</Text>
+          </TouchableOpacity>
+        </View>
 
-        <TouchableOpacity
-          style={[
-            styles.tabButton,
-            activeTab === 'income' ? styles.incomeTab : styles.inactiveTab,
-          ]}
-          onPress={() => setActiveTab('income')}
-        >
-          <Text style={styles.tabText}>Income</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Inputs */}
-      <TextInput
-        style={styles.input}
-        placeholder="Amount (USD)"
-        keyboardType="numeric"
-        value={amount}
-        onChangeText={setAmount}
-      />
-
-      <View style={styles.pickerContainer}>
-        <Picker
-          selectedValue={category}
-          onValueChange={(itemValue) => setCategory(itemValue)}
-        >
-          <Picker.Item label={`Select ${activeTab} Category`} value="" />
-          {getCategories().map((cat) => (
-            <Picker.Item key={cat} label={cat} value={cat} />
-          ))}
-        </Picker>
-      </View>
-
-      <TouchableOpacity
-        onPress={() => setShowDatePicker(true)}
-        style={[styles.input, styles.dateInput]}
-      >
-        <Text>{date.toDateString()}</Text>
-      </TouchableOpacity>
-
-      {showDatePicker && (
-        <DateTimePicker
-          value={date}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onDateChange}
+        <TextInput
+            style={styles.input}
+            placeholder="Amount (USD)"
+            keyboardType="numeric"
+            value={amount}
+            onChangeText={setAmount}
         />
-      )}
 
-      <Button title="Save" onPress={handleSave} color="#D3D3D3" disabled={!amount || !category} />
-    </Animated.View>
+        <View style={styles.pickerContainer}>
+          <Picker selectedValue={category} onValueChange={(itemValue) => setCategory(itemValue)}>
+            <Picker.Item label={`Select ${activeTab} Category`} value="" />
+            {getCategories().map((cat) => (
+                <Picker.Item key={cat} label={cat} value={cat} />
+            ))}
+          </Picker>
+        </View>
+
+        <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.input}>
+          <Text>{date.toDateString()}</Text>
+        </TouchableOpacity>
+
+        {showDatePicker && (
+            <DateTimePicker
+                value={date}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onDateChange}
+            />
+        )}
+
+        <Button
+            title="Save"
+            onPress={saveTransaction}
+            color={saveButtonColor}
+            disabled={!isFormComplete}
+        />
+      </Animated.View>
   );
 };
 
@@ -178,9 +196,6 @@ const styles = StyleSheet.create({
     paddingLeft: 10,
     backgroundColor: '#fff',
     borderColor: '#D3D3D3',
-    justifyContent: 'center',
-  },
-  dateInput: {
     justifyContent: 'center',
   },
   pickerContainer: {
