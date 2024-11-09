@@ -44,24 +44,24 @@ const BalanceTrendChart: React.FC = () => {
     return (
         <View style={styles.chartContainer}>
             <Text style={styles.chartTitle}>Balance Trend</Text>
-            <LineChart
-                data={chartData}
-                width={width - 60} // Adjusted width to fit better within the container
-                height={220}
-                yAxisSuffix=" USD"
-                chartConfig={{
-                    backgroundColor: '#1c1c1e',
-                    backgroundGradientFrom: '#2c2c2e',
-                    backgroundGradientTo: '#2c2c2e',
-                    decimalPlaces: 0,
-                    color: (opacity = 1) => `rgba(34, 139, 230, ${opacity})`, // Light blue for lines
-                    labelColor: (opacity = 1) => `rgba(200, 200, 200, ${opacity})`, // Light gray for labels
-                    style: { borderRadius: 12 },
-                    propsForDots: { r: '4', strokeWidth: '2', stroke: '#228BE6' },
-                }}
-                bezier
-                style={styles.chartStyle}
-            />
+            {/*<LineChart*/}
+            {/*    data={chartData}*/}
+            {/*    width={width - 60} // Adjusted width to fit better within the container*/}
+            {/*    height={220}*/}
+            {/*    yAxisSuffix=" USD"*/}
+            {/*    chartConfig={{*/}
+            {/*        backgroundColor: '#1c1c1e',*/}
+            {/*        backgroundGradientFrom: '#2c2c2e',*/}
+            {/*        backgroundGradientTo: '#2c2c2e',*/}
+            {/*        decimalPlaces: 0,*/}
+            {/*        color: (opacity = 1) => `rgba(34, 139, 230, ${opacity})`, // Light blue for lines*/}
+            {/*        labelColor: (opacity = 1) => `rgba(200, 200, 200, ${opacity})`, // Light gray for labels*/}
+            {/*        style: { borderRadius: 12 },*/}
+            {/*        propsForDots: { r: '4', strokeWidth: '2', stroke: '#228BE6' },*/}
+            {/*    }}*/}
+            {/*    bezier*/}
+            {/*    style={styles.chartStyle}*/}
+            {/*/>*/}
         </View>
     );
 };
