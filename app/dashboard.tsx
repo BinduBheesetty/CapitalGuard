@@ -1,6 +1,4 @@
-// app/dashboard.tsx
-
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,57 +12,37 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AddRecordPanel from '../components/AddRecordPanel';
-import { auth, db } from '../firebaseConfig';
-import { collection, getDocs } from 'firebase/firestore';
 import BalanceTrendChart from "../components/BalanceTrendChart";
+import { useTransactions } from '../context/TransactionContext';
+import { auth } from '../firebaseConfig';
 
 const { height } = Dimensions.get('window');
+
+interface Transaction {
+  id: string;
+  date: { seconds: number };
+  amount: number;
+  type: 'income' | 'expense';
+  category: string;
+}
 
 const DashboardScreen: React.FC = () => {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'expense' | 'income'>('expense');
   const [isPanelVisible, setIsPanelVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(height)).current;
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [topExpenses, setTopExpenses] = useState<any[]>([]);
 
-  const formatDate = (timestamp: { toDate: () => any; }) => {
-    const date = timestamp.toDate();
+  const { transactions, userBalance, fetchTransactions } = useTransactions(); // Use context
+
+  const handleTransactionAdded = () => {
+    fetchTransactions(); // Fetch updated transactions after adding
+    setIsPanelVisible(false); // Close the panel
+  };
+
+  const formatDate = (timestamp: { seconds: number }) => {
+    const date = new Date(timestamp.seconds * 1000);
     return date.toDateString();
   };
-
-  const fetchTransactions = async () => {
-    try {
-      const querySnapshot = await getDocs(collection(db, 'transactions'));
-      const fetchedTransactions = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setTransactions(fetchedTransactions);
-      calculateTopExpenses(fetchedTransactions);
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-    }
-  };
-
-  const calculateTopExpenses = (transactions: any[]) => {
-    const expenses = transactions.filter((t) => t.type === 'expense');
-    const expenseTotals = expenses.reduce((acc, expense) => {
-      acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
-      return acc;
-    }, {});
-
-    const sortedExpenses = Object.entries(expenseTotals)
-        .map(([category, amount]) => ({ category, amount }))
-        .sort((a, b) => b.amount - a.amount)
-        .slice(0, 3);
-
-    setTopExpenses(sortedExpenses);
-  };
-
-  useEffect(() => {
-    fetchTransactions();
-  }, []);
 
   const handleLogout = async () => {
     try {
@@ -93,7 +71,7 @@ const DashboardScreen: React.FC = () => {
     }).start(() => setIsPanelVisible(false));
   };
 
-  const getCategoryIcon = (category: any) => {
+  const getCategoryIcon = (category: string) => {
     switch (category) {
       case 'Food':
         return <Ionicons name="fast-food-outline" size={24} color="#FFA726" />;
@@ -120,24 +98,48 @@ const DashboardScreen: React.FC = () => {
     }
   };
 
-  const getBarColor = (category: any) => {
+  const getBarColor = (category: string) => {
     switch (category) {
-      case 'Rent': return '#FFA726';
-      case 'Groceries': return '#EF5350';
-      case 'Transport': return '#29B6F6';
-      default: return '#AB47BC';
+      case 'Rent':
+        return '#FFA726';
+      case 'Groceries':
+        return '#EF5350';
+      case 'Transport':
+        return '#29B6F6';
+      default:
+        return '#AB47BC';
     }
   };
+
+  const calculateTopExpenses = () => {
+    const expenses = transactions.filter((t) => t.type === 'expense');
+    const expenseTotals = expenses.reduce((acc: Record<string, number>, expense: Transaction) => {
+      acc[expense.category] = (acc[expense.category] || 0) + (expense.amount || 0); // Handle undefined `amount`
+      return acc;
+    }, {});
+
+    return Object.entries(expenseTotals)
+        .map(([category, amount]) => ({
+          category,
+          amount: typeof amount === 'number' ? amount : 0, // Ensure amount is a number
+        }))
+        .sort((a, b) => b.amount - a.amount) // Sort by amount
+        .slice(0, 3);
+  };
+
+  const topExpenses = calculateTopExpenses();
 
   return (
       <View style={styles.container}>
         <ScrollView contentContainerStyle={styles.scrollContainer}>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Cash</Text>
-            <Text style={styles.amount}>700.00 USD</Text>
+            <Text style={styles.amount}>{userBalance.toFixed(2)} USD</Text>
           </View>
 
-          <BalanceTrendChart />
+          <ScrollView>
+            <BalanceTrendChart />
+          </ScrollView>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Top Expenses</Text>
@@ -149,55 +151,56 @@ const DashboardScreen: React.FC = () => {
                     <View
                         style={[
                           styles.barFill,
-                          { width: `${(expense.amount / topExpenses[0].amount) * 100}%`, backgroundColor: getBarColor(expense.category) },
+                          {
+                            width: `${(expense.amount / topExpenses[0].amount) * 100}%`,
+                            backgroundColor: getBarColor(expense.category),
+                          },
                         ]}
                     />
                   </View>
                 </View>
             ))}
-            <TouchableOpacity style={styles.showMoreButton}>
-              <Text style={styles.showMoreText}>Show more</Text>
-            </TouchableOpacity>
+            {/*<TouchableOpacity style={styles.showMoreButton}>*/}
+            {/*  <Text style={styles.showMoreText}>Show more</Text>*/}
+            {/*</TouchableOpacity>*/}
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Last Records</Text>
-            {transactions.slice(0, 3).map((transaction) => (
-                <View key={transaction.id} style={styles.transactionContainer}>
-                  <View style={styles.iconContainer}>{getCategoryIcon(transaction.category)}</View>
-                  <View style={styles.transactionDetails}>
-                    <Text style={styles.category}>{transaction.category}</Text>
-                    <Text style={styles.date}>{formatDate(transaction.date)}</Text>
-                  </View>
-                  <Text
-                      style={[
-                        styles.amount,
-                        { color: transaction.type === 'expense' ? '#FF6347' : '#28A745' },
-                      ]}
-                  >
-                    {transaction.type === 'expense' ? '-' : '+'}${transaction.amount.toFixed(2)}
-                  </Text>
-                </View>
-            ))}
-            <TouchableOpacity style={styles.showMoreButton} onPress={() => router.push('/transactions')}>
+            {transactions
+                .sort((a, b) => b.date.seconds - a.date.seconds) // Sort by transaction date in descending order
+                .slice(0, 3) // Take the first 3 transactions after sorting
+                .map((transaction: Transaction) => (
+                    <View key={transaction.id} style={styles.transactionContainer}>
+                      <View style={styles.iconContainer}>{getCategoryIcon(transaction.category)}</View>
+                      <View style={styles.transactionDetails}>
+                        <Text style={styles.category}>{transaction.category}</Text>
+                        <Text style={styles.date}>{formatDate(transaction.date)}</Text>
+                      </View>
+                      <Text
+                          style={[
+                            styles.amount,
+                            { color: transaction.type === 'expense' ? '#FF6347' : '#28A745' },
+                          ]}
+                      >
+                        {transaction.type === 'expense' ? '-' : '+'}${transaction.amount.toFixed(2)}
+                      </Text>
+                    </View>
+                ))}
+            <TouchableOpacity
+                style={styles.showMoreButton}
+                onPress={() => router.push('/transactions')}
+            >
               <Text style={styles.showMoreText}>Show more</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
-
-        <View style={styles.footer}>
-          <TouchableOpacity style={styles.footerButton}>
-            <Ionicons name="home-outline" size={30} color="#007BFF" />
-            <Text style={styles.footerButtonText}>Dashboard</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.addButton} onPress={openPanel}>
-            <Ionicons name="add-circle" size={60} color="#28A745" />
-          </TouchableOpacity>
-        </View>
-
         <TouchableOpacity style={styles.logoutIconButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={28} color="#FF6347" />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.addButton} onPress={openPanel}>
+          <Ionicons name="add-circle" size={60} color="#28A745" />
         </TouchableOpacity>
 
         {isPanelVisible && (
@@ -206,7 +209,7 @@ const DashboardScreen: React.FC = () => {
                 setActiveTab={setActiveTab}
                 closePanel={closePanel}
                 slideAnim={slideAnim}
-                fetchTransactions={fetchTransactions}
+                fetchTransactions={handleTransactionAdded} // Pass handler
             />
         )}
       </View>
@@ -238,6 +241,7 @@ const styles = StyleSheet.create({
   amount: {
     fontSize: 18,
     fontWeight: 'bold',
+    color: '#fff',
   },
   expenseContainer: {
     marginVertical: 10,
@@ -266,18 +270,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#b0b0b0',
     marginTop: 2,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: 10,
-    backgroundColor: '#2c2c2e',
-    borderTopWidth: 1,
-    borderColor: '#3a3a3c',
-  },
-  footerButton: {
-    alignItems: 'center',
   },
   footerButtonText: {
     fontSize: 12,
