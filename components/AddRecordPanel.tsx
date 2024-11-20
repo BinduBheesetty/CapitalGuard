@@ -9,12 +9,13 @@ import {
   Dimensions,
   Animated,
   Platform,
+  Modal,
+  TouchableWithoutFeedback,
   Alert,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { addDoc, collection, Timestamp } from 'firebase/firestore';
-import { db } from '../firebaseConfig';
+import DatePicker from '@react-native-community/datetimepicker';
+import { doc, addDoc, collection, runTransaction, Timestamp } from 'firebase/firestore';
+import { auth, db } from '../firebaseConfig';
 
 const { height } = Dimensions.get('window');
 
@@ -27,7 +28,7 @@ interface AddRecordPanelProps {
 }
 
 const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
-                                                         activeTab,
+                                                         activeTab = 'expense',
                                                          setActiveTab,
                                                          closePanel,
                                                          slideAnim,
@@ -37,9 +38,10 @@ const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
   const [category, setCategory] = useState('');
   const [date, setDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
 
-  const expenseCategories = ['Food', 'Transport', 'Shopping', 'Health', 'Utilities', 'Other'];
-  const incomeCategories = ['Salary', 'Business', 'Investment', 'Freelancing', 'Other'];
+  const ExpenseCategories = ['Food', 'Transport', 'Shopping', 'Health', 'Utilities', 'Other'];
+  const IncomeCategories = ['Salary', 'Business', 'Investment', 'Freelancing', 'Other'];
 
   const saveTransaction = async () => {
     try {
@@ -48,11 +50,46 @@ const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
         return;
       }
 
-      await addDoc(collection(db, 'transactions'), {
-        type: activeTab,
-        amount: parseFloat(amount),
-        category,
-        date: Timestamp.fromDate(date),
+      const parsedAmount = parseFloat(amount);
+      const user = auth.currentUser;
+
+      if (!user) {
+        Alert.alert('Error', 'User is not logged in.');
+        return;
+      }
+
+      // Reference to the user's balance document
+      const userDocRef = doc(db, 'users', user.uid);
+
+      await runTransaction(db, async (transaction) => {
+        const userDoc = await transaction.get(userDocRef);
+
+        if (!userDoc.exists()) {
+          throw new Error('User document does not exist!');
+        }
+
+        const userData = userDoc.data();
+        const currentBalance = userData.cashBalance || 0;
+
+        const newBalance =
+            activeTab === 'income'
+                ? currentBalance + parsedAmount
+                : currentBalance - parsedAmount;
+
+        if (newBalance < 0) {
+          throw new Error('Insufficient funds for this Expense!');
+        }
+
+        transaction.update(userDocRef, { cashBalance: newBalance });
+
+        const transactionRef = collection(db, 'transactions');
+        await addDoc(transactionRef, {
+          userId: user.uid,
+          type: activeTab,
+          amount: parsedAmount,
+          category,
+          date: Timestamp.fromDate(date),
+        });
       });
 
       Alert.alert('Success', `${activeTab} added successfully.`);
@@ -60,22 +97,16 @@ const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
       fetchTransactions();
     } catch (error) {
       console.error('Error saving transaction:', error);
-      Alert.alert('Error', 'Failed to save the transaction.');
+      Alert.alert('Error', error.message || 'Failed to save the transaction.');
     }
   };
 
-  const onDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(false);
-    if (selectedDate) setDate(selectedDate);
-  };
-
-  const getCategories = () => (activeTab === 'expense' ? expenseCategories : incomeCategories);
+  const getCategories = () => (activeTab === 'expense' ? ExpenseCategories : IncomeCategories);
 
   const headerStyle = {
     backgroundColor: activeTab === 'expense' ? '#FF4B4B' : '#28A745',
   };
 
-  // Determine Save button color based on form completion
   const isFormComplete = amount && category;
   const saveButtonColor = isFormComplete ? '#28A745' : '#D3D3D3';
 
@@ -93,7 +124,7 @@ const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
           <TouchableOpacity
               style={[
                 styles.tabButton,
-                activeTab === 'expense' ? styles.expenseTab : styles.inactiveTab,
+                activeTab === 'expense' ? styles.ExpenseTab : styles.inactiveTab,
               ]}
               onPress={() => setActiveTab('expense')}
           >
@@ -102,7 +133,7 @@ const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
           <TouchableOpacity
               style={[
                 styles.tabButton,
-                activeTab === 'income' ? styles.incomeTab : styles.inactiveTab,
+                activeTab === 'income' ? styles.IncomeTab : styles.inactiveTab,
               ]}
               onPress={() => setActiveTab('income')}
           >
@@ -118,25 +149,78 @@ const AddRecordPanel: React.FC<AddRecordPanelProps> = ({
             onChangeText={setAmount}
         />
 
-        <View style={styles.pickerContainer}>
-          <Picker selectedValue={category} onValueChange={(itemValue) => setCategory(itemValue)}>
-            <Picker.Item label={`Select ${activeTab} Category`} value="" />
-            {getCategories().map((cat) => (
-                <Picker.Item key={cat} label={cat} value={cat} />
-            ))}
-          </Picker>
-        </View>
-
-        <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.input}>
-          <Text>{date.toDateString()}</Text>
+        {/* Category Dropdown */}
+        <TouchableOpacity
+            style={[styles.input, styles.categoryInput]}
+            onPress={() => setCategoryModalVisible(true)}
+        >
+          <Text>{category || `Select ${activeTab} Category`}</Text>
         </TouchableOpacity>
 
-        {showDatePicker && (
-            <DateTimePicker
+        {/* Category Modal */}
+        <Modal
+            visible={categoryModalVisible}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={() => setCategoryModalVisible(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setCategoryModalVisible(false)}>
+            <View style={styles.modalContainer} onStartShouldSetResponder={() => true}>
+              <View style={styles.modalContent}>
+                {getCategories().map((cat) => (
+                    <TouchableOpacity
+                        key={cat}
+                        style={styles.modalItem}
+                        onPress={() => {
+                          setCategory(cat);
+                          setCategoryModalVisible(false);
+                        }}
+                    >
+                      <Text style={styles.modalItemText}>{cat}</Text>
+                    </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* Date Picker */}
+        {Platform.OS === 'web' ? (
+            <View style={[styles.input, styles.dateInput]}>
+              <input
+                  type="date"
+                  style={{ width: '100%', height: '99%', border: 'none', outline: 'none' }}
+                  value={date.toISOString().substr(0, 10)}
+                  onChange={(e) => {
+                    const newDate = new Date(e.target.value);
+                    if (!isNaN(newDate.getTime())) {
+                      setDate(newDate); // Set valid date
+                    } else {
+                      console.warn('Invalid date value entered'); // Log invalid input
+                    }
+                  }}
+              />
+            </View>
+        ): (
+            <TouchableOpacity
+                onPress={() => setShowDatePicker((prev) => !prev)} // Toggle the state
+                style={[styles.input, styles.dateInput]}
+            >
+              <Text>{date.toDateString()}</Text>
+            </TouchableOpacity>
+        )}
+
+        {showDatePicker && Platform.OS !== 'web' && (
+            <DatePicker
                 value={date}
                 mode="date"
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={onDateChange}
+                onChange={(event, selectedDate) => {
+                  setShowDatePicker(false);
+                  if (selectedDate) {
+                    setDate(selectedDate);
+                  }
+                }}
             />
         )}
 
@@ -184,8 +268,8 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
   },
-  expenseTab: { backgroundColor: '#FF4B4B' },
-  incomeTab: { backgroundColor: '#28A745' },
+  ExpenseTab: { backgroundColor: '#FF4B4B' },
+  IncomeTab: { backgroundColor: '#28A745' },
   inactiveTab: { backgroundColor: '#D3D3D3' },
   tabText: { fontSize: 16, color: '#fff' },
   input: {
@@ -198,12 +282,35 @@ const styles = StyleSheet.create({
     borderColor: '#D3D3D3',
     justifyContent: 'center',
   },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: '#D3D3D3',
-    borderRadius: 8,
-    marginVertical: 10,
-    backgroundColor: '#fff',
+  categoryInput: {
+    justifyContent: 'center',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: '#2c2c2e',
+    borderRadius: 10,
+    padding: 20,
+    alignItems: 'center',
+  },
+  modalItem: {
+    width: '100%',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3a3a3c',
+  },
+  modalItemText: {
+    fontSize: 16,
+    color: '#fff',
+    textAlign: 'center',
+  },
+  dateInput: {
+    justifyContent: 'center',
   },
 });
 
